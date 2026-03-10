@@ -22,9 +22,11 @@ def scan_image_via_api(image_path):
         if response.status_code == 200:
             result = response.json()
             print("\n✅ Analysis Result Received:")
-            print(f"   Risk Level: {result['level']}")
-            print(f"   Score: {result['score']}/100")
-            print(f"   QR Links: {result['qr_links']}")
+            print(f"   Risk Level: {result.get('level', 'N/A')}")
+            print(f"   Score: {result.get('score', 0)}/100")
+            print(f"   Reasons: {result.get('reasons', [])}")
+            if result.get('qr_links'):
+                print(f"   QR Links Found: {result['qr_links']}")
         else:
             print(f"❌ Error: {response.text}")
             

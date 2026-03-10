@@ -248,8 +248,14 @@ def api_scan_image():
     except: pass
     
     if result:
-        # Return the specific JSON format requested
-        return jsonify(result)
+        # Reformat the result to match the API client's expectations
+        api_response = {
+            "level": result.get("analysis", "Error"),
+            "score": result.get("score", 0),
+            "qr_links": result.get("qr_links", []),
+            "reasons": result.get("reasons", [])
+        }
+        return jsonify(api_response)
     return jsonify({"error": "Analysis failed"}), 500
 
 if __name__ == '__main__':
