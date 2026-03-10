@@ -3,3 +3,4 @@ python-nmap
 flask
 flask-socketio
 requests
+opencv-python

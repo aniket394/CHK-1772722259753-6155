@@ -6,6 +6,7 @@ import re
 import sys
 import os
 import time
+import base64
 from urllib.parse import urlparse
 
 # Ensure project root is in path for imports
@@ -20,6 +21,7 @@ if sys.platform.startswith("win"):
 
 from scanner.nmap_scan import scan_target
 from parser.scan_parser import analyze_risk
+from image_scanner import analyze_image_file
 try:
     from nmap import PortScannerError
 except ImportError:
@@ -33,7 +35,7 @@ log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
 
 # Use threading to avoid eventlet bind errors on Python 3.14
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', max_http_buffer_size=10 * 1024 * 1024) # 10MB limit
 
 def get_local_ip():
     """Finds the local IP address of this computer on the network."""
@@ -75,7 +77,7 @@ def trigger_alert():
     socketio.emit('receive_chat', chat_payload)
     return jsonify({"status": "sent"}), 200
 
-@socketio.on('send_chat')
+@socketio.on('send_chat') # This is the correct event name
 def handle_chat(data):
     """Receives a chat message, scans it, and delivers it to all clients."""
     sender_id = request.sid
@@ -146,6 +148,106 @@ def handle_chat(data):
         "target": target
     }
     socketio.emit('receive_chat', payload)
+
+@socketio.on('analyze_image')
+def handle_image_upload(data):
+    """Receives a base64 image, saves it, scans it, and returns the result."""
+    sender_id = request.sid
+    image_data = data.get('image', '')
+    temp_id = data.get('tempId')
+    
+    if not image_data:
+        return
+
+    print(f"🖼️ Image received from {sender_id}")
+
+    # Decode and save image temporarily
+    filepath = None
+    try:
+        header, encoded = image_data.split(",", 1)
+        file_ext = header.split('/')[1].split(';')[0]
+        if file_ext == 'jpeg': file_ext = 'jpg'
+        
+        filename = f"temp_{temp_id}.{file_ext}"
+        filepath = os.path.join("images", filename)
+        
+        if not os.path.exists("images"):
+            os.makedirs("images")
+            
+        with open(filepath, "wb") as f:
+            f.write(base64.b64decode(encoded))
+            
+        # Analyze the saved image
+        result = analyze_image_file(filepath)
+        
+        # Construct response payload
+        if result:
+            # Build a descriptive analysis message
+            analysis_text = f"📷 Analysis: {result['level']} ({result['score']}/100)"
+            if result['qr_links']:
+                analysis_text += f"\n🔗 QR: {result['qr_links'][0]}"
+            if result['metadata_count'] > 0:
+                analysis_text += f"\nℹ️ Metadata: {result['metadata_count']} tags"
+
+            response_payload = {
+                "sender_id": sender_id,
+                "tempId": temp_id,
+                "message": analysis_text,
+                "risk_level": result['level'],
+                "score": result['score'],
+                "target": "Image Scan"
+            }
+            socketio.emit('receive_chat', response_payload)
+        else:
+            # Handle analysis failure (e.g. corrupt image)
+            socketio.emit('receive_chat', {
+                "sender_id": sender_id,
+                "tempId": temp_id,
+                "message": "⚠️ Analysis Failed: Could not process image.",
+                "risk_level": "Error",
+                "score": 0,
+                "target": "Image Scan"
+            })
+
+        # Clean up
+        try:
+            if filepath and os.path.exists(filepath):
+                os.remove(filepath)
+        except:
+            pass
+    except Exception as e:
+        print(f"❌ Image processing error: {e}")
+        socketio.emit('receive_chat', {
+            "sender_id": sender_id,
+            "tempId": temp_id,
+            "message": "⚠️ Server Error: Image processing failed.",
+            "risk_level": "Error",
+            "score": 0,
+            "target": "Image Scan"
+        })
+
+# --- REST API FOR EXTERNAL INTEGRATION ---
+@app.route('/api/scan/image', methods=['POST'])
+def api_scan_image():
+    """API Endpoint for other apps to scan images."""
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    filename = f"api_temp_{int(time.time())}_{file.filename}"
+    filepath = os.path.join("images", filename)
+    if not os.path.exists("images"):
+        os.makedirs("images")
+    
+    file.save(filepath)
+    result = analyze_image_file(filepath)
+    try: os.remove(filepath)
+    except: pass
+    
+    return jsonify(result)
 
 if __name__ == '__main__':
     # Host 0.0.0.0 allows devices on the same WiFi to connect

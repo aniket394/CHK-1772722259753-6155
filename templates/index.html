@@ -13,7 +13,7 @@
             margin: 0;
             display: flex;
             flex-direction: column;
-            height: 100vh;
+            height: 100dvh;
             overflow: hidden;
         }
         
@@ -102,6 +102,7 @@
             background-color: #1e1e1e;
             display: flex;
             gap: 10px;
+            align-items: center;
             flex-shrink: 0;
         }
         .input-field {
@@ -112,6 +113,7 @@
             background-color: #2c2c2c;
             color: white;
             outline: none;
+            font-size: 16px;
         }
         .send-btn {
             background-color: #007aff;
@@ -123,6 +125,34 @@
             cursor: pointer;
             font-size: 18px;
         }
+        .quick-actions {
+            padding: 5px 15px;
+            background-color: #1e1e1e;
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .quick-actions::-webkit-scrollbar { display: none; }
+        .chip {
+            background-color: #333;
+            color: #ccc;
+            border: 1px solid #444;
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .icon-btn {
+            background: none;
+            border: none;
+            color: #007aff;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0 5px;
+        }
+        #file-input { display: none; }
     </style>
 </head>
 <body>
@@ -141,7 +171,15 @@
         </div>
     </div>
 
+    <div class="quick-actions">
+        <button class="chip" onclick="quickTest('Hello, is this safe?')">✅ Test Safe</button>
+        <button class="chip" onclick="quickTest('URGENT: Verify at http://scanme.nmap.org')">🚨 Test Link</button>
+        <button class="chip" onclick="quickTest('Bank Alert: Unusual activity. Verify now.')">⚠️ Test Text</button>
+    </div>
+
     <div class="input-container">
+        <input type="file" id="file-input" accept="image/*">
+        <button class="icon-btn" onclick="document.getElementById('file-input').click()">📷</button>
         <input type="text" id="manualInput" class="input-field" placeholder="Type a message..." autocomplete="off">
         <button class="send-btn" onclick="sendManualScan()">&#10148;</button>
     </div>
@@ -224,8 +262,8 @@
             } else {
                 if (customId) msgDiv.id = customId;
                 updateMessage(msgDiv, data);
-                // Vibrate if I received a dangerous message from someone else
-                if (data.sender_id !== socket.id && data.risk_level === "High Risk") {
+                // Vibrate if I received a dangerous message (or if it's an image analysis result)
+                if ((data.sender_id !== socket.id || data.target === "Image Scan") && data.risk_level === "High Risk") {
                     navigator.vibrate([500, 200, 500]); 
                 }
             }
@@ -257,6 +295,36 @@
                 sendManualScan();
             }
         });
+
+        // Handle File Upload
+        document.getElementById('file-input').addEventListener('change', function() {
+            const file = this.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const tempId = Date.now();
+                    const imageData = e.target.result;
+                    
+                    // Show pending image message
+                    const pendingData = { 
+                        sender_id: socket.id, 
+                        message: "📷 Uploading Image for Analysis...", 
+                        tempId: tempId 
+                    };
+                    addMessageToChat(pendingData, true);
+
+                    // Send to server
+                    socket.emit('analyze_image', { image: imageData, tempId: tempId });
+                };
+                reader.readAsDataURL(file);
+                this.value = ''; // Reset input
+            }
+        });
+
+        function quickTest(text) {
+            document.getElementById('manualInput').value = text;
+            sendManualScan();
+        }
     </script>
 </body>
 </html>
