@@ -10,6 +10,10 @@ sys.path.append(os.path.dirname(__file__))
 
 from scanner.nmap_scan import scan_target
 from parser.scan_parser import analyze_risk
+try:
+    from nmap import PortScannerError
+except ImportError:
+    class PortScannerError(Exception): pass
 
 # Global UI elements
 root = None
@@ -108,10 +112,19 @@ def process_message(message):
     
     # 2. Scan & Analyze
     # Note: This blocks the UI thread, but log_to_ui calls root.update() to keep it alive
-    scan_results = scan_target(target)
-    open_ports = [port for port, _ in scan_results]
-    
-    assessment = analyze_risk(open_ports, message, full_link)
+    try:
+        scan_results = scan_target(target)
+        open_ports = [port for port, _ in scan_results]
+        assessment = analyze_risk(open_ports, message, full_link)
+    except PortScannerError:
+        log_to_ui("❌ ERROR: Nmap is not installed on this system.")
+        log_to_ui("   Please install it from https://nmap.org/download.html")
+        show_popup("⚠️ SCAN FAILED", "Nmap executable not found.", "Medium Risk")
+        return
+    except Exception as e:
+        log_to_ui(f"⚠️ An unexpected scan error occurred: {e}")
+        show_popup("⚠️ SCAN FAILED", "An unexpected error occurred.", "Medium Risk")
+        return
     
     risk_level = assessment['level']
     score = assessment['score']

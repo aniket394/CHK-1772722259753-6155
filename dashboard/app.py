@@ -16,6 +16,10 @@ if "--bg-service" in sys.argv:
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
     from scanner.nmap_scan import scan_target
     from parser.scan_parser import analyze_risk
+    try:
+        from nmap import PortScannerError
+    except ImportError:
+        class PortScannerError(Exception): pass
 
     # Global UI elements for the background service
     root = None
@@ -104,10 +108,19 @@ if "--bg-service" in sys.argv:
 
         log_to_ui(f"[*] Scanning Target: {target}")
         
-        scan_results = scan_target(target)
-        open_ports = [port for port, _ in scan_results]
-        
-        assessment = analyze_risk(open_ports, message, full_link)
+        try:
+            scan_results = scan_target(target)
+            open_ports = [port for port, _ in scan_results]
+            assessment = analyze_risk(open_ports, message, full_link)
+        except PortScannerError:
+            log_to_ui("❌ ERROR: Nmap is not installed on this system.")
+            log_to_ui("   Please install it from https://nmap.org/download.html")
+            show_popup("⚠️ SCAN FAILED", "Nmap executable not found.", "Medium Risk")
+            return
+        except Exception as e:
+            log_to_ui(f"⚠️ An unexpected scan error occurred: {e}")
+            show_popup("⚠️ SCAN FAILED", "An unexpected error occurred.", "Medium Risk")
+            return
         
         risk_level = assessment['level']
         score = assessment['score']
@@ -160,6 +173,10 @@ import streamlit as st
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from scanner.nmap_scan import scan_target
 from parser.scan_parser import check_vulnerabilities
+try:
+    from nmap import PortScannerError
+except ImportError:
+    class PortScannerError(Exception): pass
 
 st.title("Sentinel Mobile Guard: Pre-installed Security Core")
 
@@ -202,36 +219,40 @@ if st.button("Analyze Message"):
         st.error("Could not find a valid Link or IP Address in the message.")
     else:
         st.write("Scanning target source:", target)
-        results = scan_target(target)
-
-        st.subheader("Open Ports")
-
-        if len(results) == 0:
-            st.write("No open ports found")
-
-        for port, service in results:
-            st.write(f"Port {port} : {service}")
-
-        open_ports = [port for port, _ in results]
-        check_vulnerabilities(open_ports, message, full_link)
-
-        # ---------------------------------------------------------
-        # MOBILE ALERT INTEGRATION
-        # ---------------------------------------------------------
-        # Get the assessment data again to send to mobile
-        from parser.scan_parser import analyze_risk
-        assessment = analyze_risk(open_ports, message, full_link)
-        
-        payload = {
-            "message": message[:100] + "..." if len(message) > 100 else message,
-            "risk_level": assessment['level'],
-            "score": assessment['score'],
-            "target": target
-        }
-        
         try:
-            requests.post('http://localhost:5000/trigger_alert', json=payload, timeout=0.5)
-            st.toast("📡 Alert sent to Mobile Device", icon="📲")
-        except:
-            # Fail silently if mobile server isn't running
-            pass
+            results = scan_target(target)
+
+            st.subheader("Open Ports")
+
+            if not results:
+                st.write("No open ports found")
+
+            for port, service in results:
+                st.write(f"Port {port} : {service}")
+
+            open_ports = [port for port, _ in results]
+            check_vulnerabilities(open_ports, message, full_link)
+
+            # MOBILE ALERT INTEGRATION
+            from parser.scan_parser import analyze_risk
+            assessment = analyze_risk(open_ports, message, full_link)
+            
+            payload = {
+                "message": message[:100] + "..." if len(message) > 100 else message,
+                "risk_level": assessment['level'],
+                "score": assessment['score'],
+                "target": target
+            }
+            
+            try:
+                requests.post('http://localhost:5000/trigger_alert', json=payload, timeout=0.5)
+                st.toast("📡 Alert sent to Mobile Device", icon="📲")
+            except:
+                pass # Fail silently
+        except PortScannerError:
+            st.error("❌ Nmap is not installed or not in your system's PATH.")
+            st.error("SentinelAI requires the Nmap tool to perform network scans.")
+            st.info("Please download and install it from the official website:")
+            st.markdown("[https://nmap.org/download.html](https://nmap.org/download.html)")
+        except Exception as e:
+            st.error(f"An unexpected error occurred during the scan: {e}")

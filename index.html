@@ -61,6 +61,21 @@
             border-radius: 5px;
             cursor: pointer;
         }
+
+        .input-container {
+            margin-top: 20px;
+            width: 85%;
+            display: flex;
+            gap: 10px;
+        }
+        .input-field {
+            flex: 1;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #333;
+            background-color: #1e1e1e;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -79,6 +94,11 @@
     </div>
 
     <button class="btn" onclick="testVibrate()">Test Vibration</button>
+
+    <div class="input-container">
+        <input type="text" id="manualInput" class="input-field" placeholder="Type message to test...">
+        <button class="btn" style="margin-top: 0;" onclick="sendManualScan()">Scan</button>
+    </div>
 
     <script>
         // Connect to the Python Server automatically
@@ -128,6 +148,15 @@
 
         function testVibrate() {
             navigator.vibrate(200);
+        }
+
+        function sendManualScan() {
+            const input = document.getElementById('manualInput');
+            const msg = input.value;
+            if (msg.trim().length > 0) {
+                socket.emit('analyze_message_from_mobile', { message: msg });
+                input.value = ""; // Clear input
+            }
         }
     </script>
 </body>

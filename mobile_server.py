@@ -2,6 +2,21 @@ from flask import Flask, request, jsonify, render_template
 from flask_socketio import SocketIO, emit
 import logging
 import socket
+import re
+import sys
+import os
+import time
+from urllib.parse import urlparse
+
+# Ensure project root is in path for imports
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
+from scanner.nmap_scan import scan_target
+from parser.scan_parser import analyze_risk
+try:
+    from nmap import PortScannerError
+except ImportError:
+    class PortScannerError(Exception): pass
 
 # Initialize Flask and SocketIO
 app = Flask(__name__)
@@ -32,11 +47,86 @@ def index():
 def trigger_alert():
     """Receives threat data from the Dashboard and pushes it to Mobile."""
     data = request.json
-    print(f"⚡ Sending Alert to Mobile: {data['risk_level']}")
+    print(f"⚡ Dashboard Alert: {data.get('risk_level')}")
     
-    # Broadcast the alert to all connected mobile devices
-    socketio.emit('security_alert', data)
+    # Convert Dashboard alert to a Chat Message format
+    chat_payload = {
+        "sender_id": "System",
+        "message": f"🚨 DASHBOARD ALERT: {data.get('message', '')}",
+        "risk_level": data.get('risk_level', 'Low Risk'),
+        "score": data.get('score', 0),
+        "target": data.get('target', 'Unknown')
+    }
+    socketio.emit('receive_chat', chat_payload)
     return jsonify({"status": "sent"}), 200
+
+@socketio.on('send_chat')
+def handle_chat(data):
+    """Receives a chat message, scans it, and delivers it to all clients."""
+    sender_id = request.sid
+    message = data.get('message', '')
+    temp_id = data.get('tempId') # For client-side pending messages
+    
+    if not temp_id:
+        temp_id = int(time.time() * 1000)
+
+    print(f"📩 Chat from {sender_id} (tempId: {temp_id}): {message}")
+
+    # 1. Broadcast "Pending" state immediately so receiver sees it arriving
+    pending_payload = {
+        "sender_id": sender_id,
+        "tempId": temp_id,
+        "message": message,
+        "risk_level": "pending",
+        "score": 0,
+        "target": "Scanning..."
+    }
+    socketio.emit('receive_chat', pending_payload)
+
+    # 1. Extract Target (URL or IP)
+    target = None
+    full_link = None
+    url_match = re.search(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', message)
+    ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', message)
+
+    if url_match:
+        full_link = url_match.group()
+        target = urlparse(full_link).hostname
+    elif ip_match:
+        full_link = ip_match.group()
+        target = full_link
+    
+    # 2. Scan & Analyze
+    if target:
+        print(f"[*] Scanning Target: {target}")
+        try:
+            scan_results = scan_target(target)
+            open_ports = [port for port, _ in scan_results]
+            assessment = analyze_risk(open_ports, message, full_link)
+        except PortScannerError:
+            print("❌ FATAL: Nmap is not installed or not in your system's PATH.")
+            print("   Please install it from https://nmap.org/download.html")
+            assessment = {"level": "Medium Risk", "score": 50}
+            message += " (Scan Failed: Nmap not found)"
+        except Exception as e:
+            print(f"⚠️ Scan Error: {e}")
+            # If scan fails, warn the user but still deliver the message
+            assessment = {"level": "Medium Risk", "score": 50}
+            message += " (Scan Failed)"
+    else:
+        assessment = {"level": "Low Risk", "score": 0}
+        target = "No Link Found"
+
+    # 3. Broadcast to ALL clients
+    payload = {
+        "sender_id": sender_id,
+        "tempId": temp_id,
+        "message": message,
+        "risk_level": assessment['level'],
+        "score": assessment['score'],
+        "target": target
+    }
+    socketio.emit('receive_chat', payload)
 
 if __name__ == '__main__':
     # Host 0.0.0.0 allows devices on the same WiFi to connect
