@@ -14,6 +14,14 @@ if "--bg-service" in sys.argv:
     
     # Fix path to import modules from parent directory
     sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+    
+    # Fix Nmap Path on Windows (if not in system PATH)
+    if sys.platform.startswith("win"):
+        nmap_paths = [r"C:\Program Files (x86)\Nmap", r"C:\Program Files\Nmap"]
+        for path in nmap_paths:
+            if os.path.exists(path):
+                os.environ['PATH'] += ";" + path
+
     from scanner.nmap_scan import scan_target
     from parser.scan_parser import analyze_risk
     try:
@@ -171,8 +179,16 @@ if "--bg-service" in sys.argv:
 
 import streamlit as st
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Fix Nmap Path on Windows (if not in system PATH)
+if sys.platform.startswith("win"):
+    nmap_paths = [r"C:\Program Files (x86)\Nmap", r"C:\Program Files\Nmap"]
+    for path in nmap_paths:
+        if os.path.exists(path):
+            os.environ['PATH'] += ";" + path
+
 from scanner.nmap_scan import scan_target
-from parser.scan_parser import check_vulnerabilities
+from parser.scan_parser import analyze_risk
 try:
     from nmap import PortScannerError
 except ImportError:
@@ -231,12 +247,33 @@ if st.button("Analyze Message"):
                 st.write(f"Port {port} : {service}")
 
             open_ports = [port for port, _ in results]
-            check_vulnerabilities(open_ports, message, full_link)
-
-            # MOBILE ALERT INTEGRATION
-            from parser.scan_parser import analyze_risk
+            
+            # --- Perform and Display Analysis ---
             assessment = analyze_risk(open_ports, message, full_link)
             
+            st.subheader("🛡️ Real-time Protocol & Content Testing")
+            if not assessment['logs']:
+                st.success("✅ System Secure: No threats detected.")
+            for severity, msg in assessment['logs']:
+                if severity == "error": st.error(msg)
+                elif severity == "warning": st.warning(msg)
+                else: st.info(msg)
+
+            st.markdown("---")
+            st.subheader("🤖 AI Threat Prediction")
+            risk_level = assessment['level']
+            score = assessment['score']
+            color = "red" if risk_level == "High Risk" else "orange" if risk_level == "Medium Risk" else "green"
+            st.markdown(f"### Risk Score: **{score}/100**")
+            st.markdown(f"### Classification: :{color}[**{risk_level}**]")
+            if risk_level == "High Risk":
+                st.error("🚨 **CRITICAL THREAT DETECTED**: Block sender and do not click links.")
+            elif risk_level == "Medium Risk":
+                st.warning("⚠️ **POTENTIAL THREAT**: Verify the sender before proceeding.")
+            else:
+                st.success("✅ **SAFE / LOW RISK**: No immediate threats detected.")
+
+            # MOBILE ALERT INTEGRATION
             payload = {
                 "message": message[:100] + "..." if len(message) > 100 else message,
                 "risk_level": assessment['level'],
@@ -245,7 +282,7 @@ if st.button("Analyze Message"):
             }
             
             try:
-                requests.post('http://localhost:5000/trigger_alert', json=payload, timeout=0.5)
+                requests.post('http://localhost:5001/trigger_alert', json=payload, timeout=0.5)
                 st.toast("📡 Alert sent to Mobile Device", icon="📲")
             except:
                 pass # Fail silently

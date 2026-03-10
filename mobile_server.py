@@ -11,6 +11,13 @@ from urllib.parse import urlparse
 # Ensure project root is in path for imports
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
+# Fix Nmap Path on Windows (if not in system PATH)
+if sys.platform.startswith("win"):
+    nmap_paths = [r"C:\Program Files (x86)\Nmap", r"C:\Program Files\Nmap"]
+    for path in nmap_paths:
+        if os.path.exists(path):
+            os.environ['PATH'] += ";" + path
+
 from scanner.nmap_scan import scan_target
 from parser.scan_parser import analyze_risk
 try:
@@ -20,7 +27,13 @@ except ImportError:
 
 # Initialize Flask and SocketIO
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+
+# Suppress verbose Flask development server logs to reduce confusion
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
+# Use threading to avoid eventlet bind errors on Python 3.14
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 def get_local_ip():
     """Finds the local IP address of this computer on the network."""
@@ -36,7 +49,7 @@ def get_local_ip():
     return IP
 
 print("📱 SentinelAI Mobile Bridge is running...")
-print(f"   Open this URL on your Mobile Browser: http://{get_local_ip()}:5000")
+print(f"   Open this URL on your Mobile Browser: http://{get_local_ip()}:5001")
 
 @app.route('/')
 def index():
@@ -49,10 +62,12 @@ def trigger_alert():
     data = request.json
     print(f"⚡ Dashboard Alert: {data.get('risk_level')}")
     
+    source = data.get('source', 'DASHBOARD')
+    
     # Convert Dashboard alert to a Chat Message format
     chat_payload = {
         "sender_id": "System",
-        "message": f"🚨 DASHBOARD ALERT: {data.get('message', '')}",
+        "message": f"🚨 {source} ALERT: {data.get('message', '')}",
         "risk_level": data.get('risk_level', 'Low Risk'),
         "score": data.get('score', 0),
         "target": data.get('target', 'Unknown')
@@ -86,11 +101,13 @@ def handle_chat(data):
     # 1. Extract Target (URL or IP)
     target = None
     full_link = None
-    url_match = re.search(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', message)
+    url_match = re.search(r'(?:http[s]?://|www\.)(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', message)
     ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', message)
 
     if url_match:
         full_link = url_match.group()
+        if full_link.startswith("www."):
+            full_link = "http://" + full_link
         target = urlparse(full_link).hostname
     elif ip_match:
         full_link = ip_match.group()
@@ -114,8 +131,10 @@ def handle_chat(data):
             assessment = {"level": "Medium Risk", "score": 50}
             message += " (Scan Failed)"
     else:
-        assessment = {"level": "Low Risk", "score": 0}
-        target = "No Link Found"
+        # Analyze text content even if no link is present
+        print("[*] Analyzing Text Content (No Link Detected)")
+        assessment = analyze_risk([], message, "Text Only")
+        target = "Text Content"
 
     # 3. Broadcast to ALL clients
     payload = {
@@ -130,4 +149,4 @@ def handle_chat(data):
 
 if __name__ == '__main__':
     # Host 0.0.0.0 allows devices on the same WiFi to connect
-    socketio.run(app, host='0.0.0.0', port=5000)
+    socketio.run(app, host='0.0.0.0', port=5001)

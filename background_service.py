@@ -6,7 +6,14 @@ from tkinter import scrolledtext
 from urllib.parse import urlparse
 
 # Add project root to path to import modules
-sys.path.append(os.path.dirname(__file__))
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+ 
+# Fix Nmap Path on Windows (if not in system PATH)
+if sys.platform.startswith("win"):
+    nmap_paths = [r"C:\Program Files (x86)\Nmap", r"C:\Program Files\Nmap"]
+    for path in nmap_paths:
+        if os.path.exists(path):
+            os.environ['PATH'] += ";" + path
 
 from scanner.nmap_scan import scan_target
 from parser.scan_parser import analyze_risk
@@ -18,6 +25,7 @@ except ImportError:
 # Global UI elements
 root = None
 log_area = None
+msg_entry = None
 
 def log_to_ui(text):
     """Updates the log area in the UI."""

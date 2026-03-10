@@ -33,7 +33,14 @@ DANGEROUS_EXTENSIONS = ['.apk', '.exe', '.zip', '.rar', '.sh', '.bin']
 
 def analyze_risk(open_ports: List[int], message_content: str, target: str) -> dict:
     """Core AI Logic: Calculates risk score and returns analysis data."""
-    total_score = 0
+    # Base score starts at 0. We add points for each potential risk factor.
+    #
+    # --- Scoring Philosophy ---
+    # < 30: Low Risk - Generally safe, standard ports or content.
+    # 30-60: Medium Risk - Suspicious keywords or non-standard ports are open. Caution advised.
+    # > 60: High Risk - Multiple red flags, dangerous file types, or critical open ports.
+    #
+    total_score = 0 
     logs = [] # Stores log messages (severity, text)
 
     # 1. Protocol/Port Analysis
@@ -54,6 +61,9 @@ def analyze_risk(open_ports: List[int], message_content: str, target: str) -> di
     if suspicious_words:
         content_risk += 40
         logs.append(("warning", f"⚠️ FRAUD DETECTED: Keywords found: {', '.join(suspicious_words)}"))
+        # If multiple keywords are found, increase risk significantly
+        if len(suspicious_words) >= 2:
+            content_risk += 25
     
     if any(target.endswith(ext) for ext in DANGEROUS_EXTENSIONS):
         content_risk += 50
@@ -73,40 +83,3 @@ def analyze_risk(open_ports: List[int], message_content: str, target: str) -> di
         "level": risk_level,
         "logs": logs
     }
-
-def check_vulnerabilities(open_ports: List[int], message_content: str, target: str) -> None:
-    """Dashboard Wrapper: Displays analysis results in Streamlit."""
-    assessment = analyze_risk(open_ports, message_content, target)
-    
-    st.subheader("🛡️ Real-time Protocol & Content Testing")
-    
-    if not assessment['logs']:
-        st.success("✅ System Secure: No threats detected.")
-
-    for severity, msg in assessment['logs']:
-        if severity == "error": st.error(msg)
-        elif severity == "warning": st.warning(msg)
-        else: st.info(msg)
-
-    st.markdown("---")
-    st.subheader("🤖 AI Threat Prediction")
-    
-    risk_level = assessment['level']
-    score = assessment['score']
-    
-    color = "red" if risk_level == "High Risk" else "orange" if risk_level == "Medium Risk" else "green"
-    st.markdown(f"### Risk Score: **{score}/100**")
-    st.markdown(f"### Classification: :{color}[**{risk_level}**]")
-
-    if risk_level == "High Risk":
-        st.error("🚨 **CRITICAL THREAT DETECTED**")
-        st.write("This source contains fake content or dangerous protocols. **Do not click links or download files.**")
-        st.write("**Action:** Block sender and disconnect from this network source.")
-    elif risk_level == "Medium Risk":
-        st.warning("⚠️ **POTENTIAL THREAT**")
-        st.write("The target exposes services or content that requires caution.")
-        st.write("**Action:** Verify the sender identity before proceeding.")
-    else:
-        st.success("✅ **SAFE / LOW RISK**")
-        st.write("No fraud or protocol vulnerabilities detected.")
-        st.write("**Action:** Safe to proceed.")

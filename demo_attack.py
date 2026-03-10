@@ -9,7 +9,7 @@ import time
 import random
 
 # Configuration
-SERVER_URL = "http://localhost:5000/trigger_alert"
+SERVER_URL = "http://localhost:5001/trigger_alert"
 
 SCENARIOS = [
     {
