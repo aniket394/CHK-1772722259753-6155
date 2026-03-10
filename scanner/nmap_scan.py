@@ -4,7 +4,7 @@ def scan_target(ip):
 
     scanner = nmap.PortScanner()
 
-    scanner.scan(ip, '1-10000')
+    scanner.scan(ip, arguments='--top-ports 100 -sV -T4')
     results = []
 
     for host in scanner.all_hosts():

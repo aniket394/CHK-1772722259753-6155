@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sentinel Mobile</title>
+    <link rel="icon" href="data:,">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Courier New', Courier, monospace;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            text-align: center;
+        }
+        .logo {
+            font-size: 60px;
+            margin-bottom: 20px;
+        }
+        h1 { font-size: 24px; margin: 0; }
+        p { color: #888; }
+        
+        .status-box {
+            margin-top: 30px;
+            padding: 15px;
+            border: 1px solid #333;
+            border-radius: 10px;
+            width: 80%;
+            background-color: #1e1e1e;
+        }
+        
+        .alert-box {
+            display: none; /* Hidden by default */
+            margin-top: 30px;
+            padding: 20px;
+            border-radius: 12px;
+            width: 85%;
+            animation: popIn 0.5s ease;
+        }
+
+        .history-container {
+            margin-top: 30px;
+            width: 90%;
+            text-align: left;
+        }
+        .history-item {
+            border-bottom: 1px solid #333;
+            padding: 10px;
+            font-size: 12px;
+            color: #aaa;
+        }
+        
+        .high-risk { background-color: #d32f2f; color: white; box-shadow: 0 0 20px #d32f2f; }
+        .medium-risk { background-color: #ffa000; color: black; }
+        .safe { background-color: #388e3c; color: white; }
+
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .btn {
+            margin-top: 20px;
+            padding: 10px 20px;
+            background: #333;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="logo">🛡️</div>
+    <h1>SentinelAI<br>Mobile Guard</h1>
+    
+    <div class="status-box">
+        <span id="connection-status">🔴 Disconnected</span>
+    </div>
+
+    <div id="alert-panel" class="alert-box">
+        <h2 id="alert-title">THREAT DETECTED</h2>
+        <p id="alert-msg" style="color: inherit; font-weight: bold;">Scanning...</p>
+        <div id="alert-score" style="font-size: 2em; font-weight: bold;">0</div>
+    </div>
+
+    <button class="btn" onclick="testVibrate()">Test Vibration</button>
+
+    <div class="history-container">
+        <h3 style="border-bottom: 1px solid #555; padding-bottom: 5px;">Alert History</h3>
+        <div id="history-list"></div>
+    </div>
+
+    <script>
+        // Connect to the Python Server automatically
+        const socket = io();
+
+        const statusLabel = document.getElementById('connection-status');
+        const alertPanel = document.getElementById('alert-panel');
+        const alertTitle = document.getElementById('alert-title');
+        const alertMsg = document.getElementById('alert-msg');
+        const alertScore = document.getElementById('alert-score');
+        const historyList = document.getElementById('history-list');
+
+        socket.on('connect', () => {
+            statusLabel.innerHTML = "🟢 Connected to Core";
+            statusLabel.style.color = "#4CAF50";
+        });
+
+        socket.on('disconnect', () => {
+            statusLabel.innerHTML = "🔴 Disconnected";
+            statusLabel.style.color = "#F44336";
+        });
+
+        socket.on('security_alert', (data) => {
+            console.log("Alert received:", data);
+            showAlert(data);
+        });
+
+        function showAlert(data) {
+            alertPanel.style.display = 'block';
+            alertPanel.className = 'alert-box'; // Reset classes
+            
+            alertMsg.innerText = data.message;
+            alertScore.innerText = data.score + "/100";
+
+            // Play Sound
+            playSound(data.risk_level);
+
+            // Add to History
+            addToHistory(data);
+
+            if (data.risk_level === "High Risk") {
+                alertPanel.classList.add('high-risk');
+                alertTitle.innerText = "🚨 CRITICAL THREAT";
+                navigator.vibrate([500, 200, 500]); // Vibrate pattern
+            } else if (data.risk_level === "Medium Risk") {
+                alertPanel.classList.add('medium-risk');
+                alertTitle.innerText = "⚠️ SUSPICIOUS";
+                navigator.vibrate(300);
+            } else {
+                alertPanel.classList.add('safe');
+                alertTitle.innerText = "✅ SCAN COMPLETE";
+            }
+        }
+
+        function addToHistory(data) {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            const time = new Date().toLocaleTimeString();
+            
+            let color = "#4CAF50";
+            if(data.risk_level === "High Risk") color = "#F44336";
+            if(data.risk_level === "Medium Risk") color = "#FF9800";
+
+            item.innerHTML = `<span style="color:${color}; font-weight:bold;">[${time}] ${data.risk_level}</span><br>${data.message.substring(0, 40)}...`;
+            
+            // Insert at top
+            historyList.insertBefore(item, historyList.firstChild);
+        }
+
+        function playSound(risk) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+
+            if (risk === "High Risk") { osc.frequency.value = 880; osc.type = 'sawtooth'; } // High pitch siren
+            else { osc.frequency.value = 440; osc.type = 'sine'; } // Normal beep
+
+            osc.start();
+            gain.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.5);
+            osc.stop(ctx.currentTime + 0.5);
+        }
+
+        function testVibrate() {
+            navigator.vibrate(200);
+            playSound("Medium Risk");
+        }
+    </script>
+</body>
+</html>
