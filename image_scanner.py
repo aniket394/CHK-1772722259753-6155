@@ -7,7 +7,18 @@ import os
 import time
 from PIL import Image
 import cv2
+import pytesseract
+import numpy as np
 import exifread
+try:
+    from pyzbar.pyzbar import decode
+except (ImportError, OSError):
+    print("⚠️ Warning: QR Code detection disabled. 'pyzbar' DLLs not found (Missing VC++ 2013 Redist?).")
+    decode = None
+try:
+    from stegano import lsb
+except ImportError:
+    lsb = None
 
 try:
     import winsound
@@ -20,8 +31,7 @@ except ImportError:
 IMAGE_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 
 # Threat scoring weights
-SCORE_QR_CODE_DETECTED = 60  # High Risk if a QR code is found
-SCORE_METADATA_PRESENT = 30  # Medium Risk if metadata is present
+FRAUD_KEYWORDS = ["otp", "verify", "urgent", "bank", "payment", "click link", "lottery", "reward", "update account"]
 
 # --- HELPER FUNCTIONS ---
 
@@ -34,56 +44,83 @@ def analyze_image_file(image_path):
     """
     print(f"\n{'='*20} Analyzing: {os.path.basename(image_path)} {'='*20}")
     
-    threat_score = 0
-    qr_links_found = []
-    metadata_keys = []
+    score = 0
+    reasons = []
 
     # 1. Safely open the image using Pillow
     try:
         with Image.open(image_path) as img:
-            # Display the image (opens in default image viewer)
-            # img.show() # Uncomment this line if you want to see each image as it's scanned
+            # Convert to RGB for consistency
+            img = img.convert('RGB')
             
-            # 2. Scan for QR codes using OpenCV
-            img_cv = cv2.imread(image_path)
-            if img_cv is not None:
-                detector = cv2.QRCodeDetector()
+            # --- 1. QR Code Detection (pyzbar) ---
+            try:
+                if decode:
+                    decoded_objects = decode(img)
+                    if decoded_objects:
+                        score += 60
+                        reasons.append("QR code detected in image")
+                        for obj in decoded_objects:
+                            print(f"    [+] QR Data: {obj.data.decode('utf-8')}")
+            except Exception as e:
+                print(f"    [!] QR Scan Error: {e}")
+            
+            # --- 2. OCR Text Detection (Pytesseract) ---
+            try:
+                text_content = pytesseract.image_to_string(img).lower()
+                found_keywords = [word for word in FRAUD_KEYWORDS if word in text_content]
                 
+                for word in found_keywords:
+                    score += 10
+                    reasons.append(f"Suspicious keyword detected: {word}")
+                    
+            except Exception as ocr_err:
+                print(f"    [!] OCR Error (Tesseract not installed?): {ocr_err}")
+
+            # --- 3. Steganography Detection (Stegano LSB) ---
+            # Note: LSB usually requires PNG/BMP. JPG compression destroys it.
+            if lsb:
                 try:
-                    data, bbox, _ = detector.detectAndDecode(img_cv)
-                    if data:
-                        threat_score += SCORE_QR_CODE_DETECTED
-                        qr_links_found.append(data)
-                except Exception as cv_err:
-                    print(f"    [!] OpenCV QR Scan Error: {cv_err}")
+                    # Stegano library works best with PNG. We try to reveal data.
+                    # If the image is a JPG, this might fail or return nothing, which is expected.
+                    hidden_message = lsb.reveal(image_path)
+                    if hidden_message:
+                        score += 40
+                        reasons.append("Hidden steganography message detected")
+                        print(f"    [!] Hidden Data: {hidden_message[:50]}...")
+                except Exception:
+                    # Expected error for JPEGs or non-stegano images
+                    pass
 
     except Exception as e:
         print(f"    [!] Could not open or process image: {e}")
         return None
 
-    # 3. Read EXIF metadata
+    # --- 4. EXIF Metadata Check ---
     try:
         with open(image_path, 'rb') as f:
             tags = exifread.process_file(f, details=False)
             if tags:
-                threat_score += SCORE_METADATA_PRESENT
-                metadata_keys = list(tags.keys())
+                # Check for specific suspicious tags or just presence of extensive metadata
+                if len(tags) > 5: # Arbitrary threshold for "unusual" amount of metadata
+                    score += 10
+                    reasons.append("Unusual EXIF metadata detected")
     except Exception as e:
         print(f"    [!] Could not read EXIF data: {e}")
 
-    # Determine final threat level based on actual content
-    threat_level = "LOW"
-    if threat_score > 50:
-        threat_level = "HIGH"
-    elif threat_score > 25:
-        threat_level = "MEDIUM"
+    # --- 5. Risk Level Classification ---
+    score = min(score, 100) # Cap at 100
+    
+    analysis = "LOW"
+    if score >= 70:
+        analysis = "HIGH"
+    elif score >= 30:
+        analysis = "MEDIUM"
 
     return {
-        "filename": os.path.basename(image_path),
-        "qr_links": qr_links_found,
-        "metadata_count": len(metadata_keys),
-        "score": threat_score,
-        "level": threat_level,
+        "analysis": analysis,
+        "score": score,
+        "reasons": reasons
     }
 
 def start_monitoring():
@@ -117,16 +154,15 @@ def start_monitoring():
                     
                     if result:
                         print("\n    --- THREAT REPORT ---")
-                        print(f"    File: {result['filename']}")
-                        print(f"    QR Links: {result['qr_links'] or 'None'}")
-                        print(f"    Metadata Keys: {result['metadata_count']}")
+                        print(f"    File: {filename}")
+                        print(f"    Analysis: {result['analysis']}")
                         print(f"    Threat Score: {result['score']}")
-                        print(f"    Threat Level: {result['level']}")
+                        print(f"    Reasons: {result['reasons']}")
                         print(f"{'='*50}")
 
-                        if result['level'] == "HIGH" and winsound:
+                        if result['analysis'] == "HIGH" and winsound:
                             winsound.Beep(1000, 1000)
-                        elif result['level'] == "MEDIUM" and winsound:
+                        elif result['analysis'] == "MEDIUM" and winsound:
                             winsound.Beep(700, 500)
             
             seen_files = current_files

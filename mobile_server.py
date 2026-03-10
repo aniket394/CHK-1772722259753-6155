@@ -183,17 +183,17 @@ def handle_image_upload(data):
         # Construct response payload
         if result:
             # Build a descriptive analysis message
-            analysis_text = f"📷 Analysis: {result['level']} ({result['score']}/100)"
-            if result['qr_links']:
-                analysis_text += f"\n🔗 QR: {result['qr_links'][0]}"
-            if result['metadata_count'] > 0:
-                analysis_text += f"\nℹ️ Metadata: {result['metadata_count']} tags"
+            analysis_text = f"📷 Analysis: {result['analysis']} ({result['score']}/100)"
+            if result['reasons']:
+                analysis_text += f"\n⚠️ {result['reasons'][0]}"
+            if len(result['reasons']) > 1:
+                analysis_text += f"\n(+{len(result['reasons'])-1} other flags)"
 
             response_payload = {
                 "sender_id": sender_id,
                 "tempId": temp_id,
                 "message": analysis_text,
-                "risk_level": result['level'],
+                "risk_level": result['analysis'],
                 "score": result['score'],
                 "target": "Image Scan"
             }
@@ -247,7 +247,10 @@ def api_scan_image():
     try: os.remove(filepath)
     except: pass
     
-    return jsonify(result)
+    if result:
+        # Return the specific JSON format requested
+        return jsonify(result)
+    return jsonify({"error": "Analysis failed"}), 500
 
 if __name__ == '__main__':
     # Host 0.0.0.0 allows devices on the same WiFi to connect
