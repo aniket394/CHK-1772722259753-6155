@@ -4,6 +4,7 @@ import re
 import tkinter as tk
 from tkinter import scrolledtext
 from urllib.parse import urlparse
+import requests
 
 # Add project root to path to import modules
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
@@ -139,6 +140,20 @@ def process_message(message):
     
     log_to_ui(f"[*] Analysis Complete. Risk: {risk_level} (Score: {score})")
     
+    # Send to Mobile Server (Integration)
+    try:
+        payload = {
+            "source": "SMS_SCANNER",
+            "message": message,
+            "risk_level": risk_level,
+            "score": score,
+            "target": target
+        }
+        requests.post("http://localhost:5001/trigger_alert", json=payload, timeout=1)
+        log_to_ui("[+] Alert sent to Mobile Server.")
+    except Exception as e:
+        log_to_ui(f"[-] Failed to send to Mobile Server: {e}")
+
     # 3. Trigger Popup based on Priority Level
     if risk_level == "High Risk":
         show_popup("🚨 HIGH PRIORITY ALERT", f"Critical Threat Detected! (Score: {score})", risk_level)
