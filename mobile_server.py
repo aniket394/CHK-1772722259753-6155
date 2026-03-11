@@ -19,8 +19,17 @@ if sys.platform.startswith("win"):
         if os.path.exists(path):
             os.environ['PATH'] += ";" + path
 
-from scanner.nmap_scan import scan_target
-from parser.scan_parser import analyze_risk
+# Safe Imports: Ensure server runs even if scanner modules are missing/reorganized
+try:
+    from scanner.nmap_scan import scan_target
+    from parser.scan_parser import analyze_risk
+except ImportError:
+    print("⚠️  Warning: Scanner modules not found. Using simulation mode for Nmap.")
+    def scan_target(target): 
+        return []
+    def analyze_risk(ports, msg, link): 
+        return {"level": "Low Risk", "score": 10, "logs": [], "reasons": ["Simulation (Module Missing)"]}
+
 from image_scanner import analyze_image_file
 try:
     from nmap import PortScannerError
@@ -33,6 +42,10 @@ app = Flask(__name__)
 # Suppress verbose Flask development server logs to reduce confusion
 log = logging.getLogger('werkzeug')
 log.setLevel(logging.ERROR)
+
+# Suppress Flask Server Banner
+from flask import cli
+cli.show_server_banner = lambda *args: None
 
 # Use threading to avoid eventlet bind errors on Python 3.14
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', max_http_buffer_size=10 * 1024 * 1024) # 10MB limit
@@ -265,4 +278,4 @@ def api_scan_image():
 
 if __name__ == '__main__':
     # Host 0.0.0.0 allows devices on the same WiFi to connect
-    socketio.run(app, host='0.0.0.0', port=5001)
+    socketio.run(app, host='0.0.0.0', port=5001, allow_unsafe_werkzeug=True)

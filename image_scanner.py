@@ -10,6 +10,7 @@ import pytesseract
 import numpy as np
 import exifread
 import sys
+import requests
 
 # --- Fix for pyzbar on Windows ---
 if sys.platform.startswith("win"):
@@ -45,6 +46,8 @@ FRAUD_KEYWORDS = ["otp", "verify", "urgent", "bank", "payment", "click link", "l
 
 # Set this to True to FORCE every image to be High Risk (for testing alerts)
 SIMULATION_MODE = False
+
+MOBILE_SERVER_URL = "http://localhost:5001/trigger_alert"
 
 # --- HELPER FUNCTIONS ---
 
@@ -259,6 +262,19 @@ def start_monitoring():
                             winsound.Beep(1000, 1000)
                         elif result['analysis'] == "Medium Risk" and winsound:
                             winsound.Beep(700, 500)
+                        
+                        # --- NEW: Send Alert to Mobile App ---
+                        try:
+                            payload = {
+                                "source": "PC IMAGE SCANNER",
+                                "message": f"File: {filename}\nReasons: {result['reasons']}",
+                                "risk_level": result['analysis'],
+                                "score": result['score'],
+                                "target": "File System"
+                            }
+                            requests.post(MOBILE_SERVER_URL, json=payload, timeout=1)
+                        except Exception:
+                            pass # Server might be down, ignore
             
             seen_files = current_files
             time.sleep(1) # Check every second
