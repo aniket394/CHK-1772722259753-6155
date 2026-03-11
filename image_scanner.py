@@ -44,7 +44,7 @@ IMAGE_FOLDER = os.path.join(os.path.expanduser("~"), "Downloads")
 FRAUD_KEYWORDS = ["otp", "verify", "urgent", "bank", "payment", "click link", "lottery", "reward", "update account"]
 
 # Set this to True to FORCE every image to be High Risk (for testing alerts)
-SIMULATION_MODE = True
+SIMULATION_MODE = False
 
 # --- HELPER FUNCTIONS ---
 
@@ -55,6 +55,11 @@ def analyze_image_file(image_path):
     Args:
         image_path (str): The full path to the image file.
     """
+    # Always reset state for each new image analysis
+    score = 0
+    reasons = []
+    qr_links = []
+
     print(f"\n{'='*20} Analyzing: {os.path.basename(image_path)} {'='*20}")
     
     # --- SIMULATION / TESTING TRIGGER ---
@@ -62,15 +67,11 @@ def analyze_image_file(image_path):
     if SIMULATION_MODE or "test_threat" in os.path.basename(image_path).lower():
         print("    [!] SIMULATION MODE: Test Trigger Detected!")
         return {
-            "analysis": "HIGH",
+            "analysis": "High Risk",
             "score": 98,
             "reasons": ["⚠️ SIMULATION: Manual Test Triggered", "Filename contains 'test_threat'"],
             "qr_links": []
         }
-
-    score = 0
-    reasons = []
-    qr_links = []
 
     # 1. Safely open the image using Pillow
     try:
@@ -158,8 +159,8 @@ def analyze_image_file(image_path):
                 else:
                     print("    [i] No EXIF data found in image.")
                     # Treat completely stripped metadata as slightly suspicious
-                    score += 35
-                    reasons.append("⚠️ Warning: File metadata is stripped (Suspicious)")
+                    score += 5
+                    reasons.append("ℹ️ Info: File metadata is stripped (Common for web images)")
             except Exception as exif_err:
                 print(f"    [!] Error processing EXIF data: {exif_err}")
 
@@ -170,11 +171,11 @@ def analyze_image_file(image_path):
     # --- 5. Risk Level Classification ---
     score = min(score, 100) # Cap at 100
     
-    analysis = "LOW"
+    analysis = "Low Risk"
     if score >= 70:
-        analysis = "HIGH"
+        analysis = "High Risk"
     elif score >= 30:
-        analysis = "MEDIUM"
+        analysis = "Medium Risk"
 
     return {
         "analysis": analysis,
@@ -242,9 +243,9 @@ def start_monitoring():
                         BOLD = "\033[1m"
 
                         color = GREEN
-                        if result['analysis'] == "HIGH":
+                        if result['analysis'] == "High Risk":
                             color = RED
-                        elif result['analysis'] == "MEDIUM":
+                        elif result['analysis'] == "Medium Risk":
                             color = YELLOW
 
                         print(f"\n    {color}{'='*15} THREAT REPORT {'='*15}{RESET}")
@@ -254,9 +255,9 @@ def start_monitoring():
                         print(f"    Reasons: {result['reasons']}")
                         print(f"    {color}{'='*45}{RESET}")
 
-                        if result['analysis'] == "HIGH" and winsound:
+                        if result['analysis'] == "High Risk" and winsound:
                             winsound.Beep(1000, 1000)
-                        elif result['analysis'] == "MEDIUM" and winsound:
+                        elif result['analysis'] == "Medium Risk" and winsound:
                             winsound.Beep(700, 500)
             
             seen_files = current_files

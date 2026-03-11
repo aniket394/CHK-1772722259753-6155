@@ -10,10 +10,10 @@
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
             background-color: #121212;
             color: #ffffff;
-            margin: 0;
             display: flex;
             flex-direction: column;
             height: 100dvh;
+            margin: 0;
             overflow: hidden;
         }
         
@@ -131,9 +131,9 @@
             display: flex;
             gap: 8px;
             overflow-x: auto;
-            scrollbar-width: none;
+            scrollbar-width: none; /* Hide scrollbar Firefox */
         }
-        .quick-actions::-webkit-scrollbar { display: none; }
+        .quick-actions::-webkit-scrollbar { display: none; } /* Hide scrollbar Chrome */
         .chip {
             background-color: #333;
             color: #ccc;
@@ -164,7 +164,7 @@
             <span id="connection-status">Disconnected</span>
         </div>
     </div>
-
+    
     <div id="chat-container">
         <div class="message msg-system">
             🔒 Messages are scanned for threats in real-time.
@@ -185,7 +185,9 @@
     </div>
 
     <script>
+        // Connect to the Python Server automatically
         const socket = io();
+
         const statusLabel = document.getElementById('connection-status');
         const statusDot = document.getElementById('status-dot');
         const chatContainer = document.getElementById('chat-container');

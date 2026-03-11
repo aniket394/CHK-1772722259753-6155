@@ -58,6 +58,11 @@ def index():
     """Serves the Mobile App Interface."""
     return render_template('index.html')
 
+@app.route('/chat')
+def chat_interface():
+    """Serves the Web-based SMS/Chat Interface for device-to-device communication."""
+    return render_template('chat.html')
+
 @app.route('/trigger_alert', methods=['POST'])
 def trigger_alert():
     """Receives threat data from the Dashboard and pushes it to Mobile."""
